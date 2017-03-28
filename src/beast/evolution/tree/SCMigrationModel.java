@@ -36,12 +36,12 @@ public class SCMigrationModel extends CalculationNode implements MigrationModel 
 
     public Input<RealParameter> rateMatrixInput = new Input<>(
             "rateMatrix",
-            "Migration rate matrix",
+            "The migration rate matrix",
             Validate.REQUIRED);
 
     public Input<RealParameter> popSizesInput = new Input<>(
             "popSizes",
-            "Deme population sizes.",
+            "The deme population sizes.",
             Validate.REQUIRED);
     
     public Input<BooleanParameter> rateMatrixFlagsInput = new Input<>(
