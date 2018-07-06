@@ -53,18 +53,16 @@ public class MultiTypeTree extends Tree {
     public Input<TraitSet> typeTraitInput = new Input<>(
         "typeTrait", "Type trait set.  Used only by BEAUti.");
 
-    public Input<String> typeTraitValuesInput = new Input<>(
-            "typeTraitValues",
-            "Comma-delimited list of types to be included even when absent " +
-                    "from the sampled taxa.");
+    public Input<TypeSet> typeSetInput = new Input<>(
+            "typeSet", "Type set input."
+    );
 
     /*
      * Non-input fields:
      */
     protected String typeLabel;
     protected TraitSet typeTraitSet;
-    
-    protected List <String> typeList;
+    protected TypeSet typeSet;
 
     public MultiTypeTree() { };
     
@@ -139,6 +137,7 @@ public class MultiTypeTree extends Tree {
         }
         
         typeLabel = typeLabelInput.get();
+        typeSet = typeSetInput.get();
         
         processTraits(m_traitList.get());
 
@@ -181,36 +180,21 @@ public class MultiTypeTree extends Tree {
                         "traitname", "type",
                         "taxa", getTaxonset(),
                         "value", sb.toString());
-                    dummyTraitSet.setID("typeTraitSet.t:"
+                    dummyTraitSet.setID("typeTraitSetInput.t:"
                         + BeautiDoc.parsePartition(getID()));
                     setTypeTrait(dummyTraitSet);
+
+                    if (typeSet != null)
+                        typeSet.addTypesFromTypeTraitSet(dummyTraitSet);
                 } catch (Exception ex) {
                     System.out.println("Error setting default type trait.");
                 }
             }
         }
 
-        if (typeTraitSet != null) {
-
-            Set<String> typeSet = new HashSet<>();
-
-            int nTaxa = typeTraitSet.taxaInput.get().asStringList().size();
-            for (int i = 0; i < nTaxa; i++)
-                typeSet.add(typeTraitSet.getStringValue(i));
-
-            // Include any addittional trait values in type list
-            if (typeTraitValuesInput.get() != null) {
-                for (String typeName : typeTraitValuesInput.get().split(","))
-                    typeSet.add(typeName);
-            }
-
-            typeList = Lists.newArrayList(typeSet);
-            Collections.sort(typeList);
-
-            System.out.println("Type trait with the following types detected:");
-            for (int i = 0; i < typeList.size(); i++)
-                System.out.println(typeList.get(i) + " (" + i + ")");
-
+        if (typeSet == null) {
+            typeSet = new TypeSet();
+            typeSet.initByName("typeTraitSet", typeTraitSet);
         }
     }
     
@@ -222,6 +206,16 @@ public class MultiTypeTree extends Tree {
             processTraits(m_traitList.get());
         
         return typeTraitSet;
+    }
+
+    /**
+     * @return type set corresponding to this tree
+     */
+    public TypeSet getTypeSet() {
+        if (!traitsProcessed)
+            processTraits(m_traitList.get());
+
+        return typeSet;
     }
     
     /**
@@ -250,39 +244,6 @@ public class MultiTypeTree extends Tree {
         typeTraitSet = traitSet;
     }
     
-    /**
-     * Retrieve the list of unique types identified by the type trait.
-     * @return List of unique type trait value strings.
-     */
-    public List<String> getTypeList() {
-        if (!traitsProcessed)
-            processTraits(m_traitList.get());
-        
-        return typeList;
-    }
-
-    /**
-     * @param type
-     * @return string name of given type
-     */
-    public String getTypeString(int type) {
-        if (!traitsProcessed)
-            processTraits(m_traitList.get());
-
-        return typeList.get(type);
-    }
-
-    /**
-     * @param typeString
-     * @return integer type corresponding to given type string
-     */
-    public int getTypeFromString(String typeString) {
-        if (!traitsProcessed)
-            processTraits(m_traitList.get());
-
-        return typeList.indexOf(typeString);
-    }
-
     /**
      * @return type label to be used in logging.
      */
@@ -505,7 +466,7 @@ public class MultiTypeTree extends Tree {
                     ((MultiTypeNode)node).getNodeType());
             if(useTypeStrings)
                 startNode.metaDataString = String.format("%s=\"%s\"",
-                    typeLabel, getTypeString(mtNode.getNodeType()));
+                    typeLabel, typeSet.getTypeName(mtNode.getNodeType()));
             else
                 startNode.metaDataString = String.format("%s=%d",
                     typeLabel, mtNode.getNodeType());
@@ -516,7 +477,7 @@ public class MultiTypeTree extends Tree {
                     ((MultiTypeNode)node.getParent()).getNodeType());
             if(useTypeStrings)
                 endNode.metaDataString = String.format("%s=\"%s\"",
-                    typeLabel, getTypeString(((MultiTypeNode)node.getParent()).getNodeType()));
+                    typeLabel, typeSet.getTypeName(((MultiTypeNode)node.getParent()).getNodeType()));
             else
                 endNode.metaDataString = String.format("%s=%d",
                     typeLabel, ((MultiTypeNode)node.getParent()).getNodeType());
@@ -540,7 +501,7 @@ public class MultiTypeTree extends Tree {
                         mtNode.getChangeType(i));
                 if (useTypeStrings)
                     colourChangeNode.metaDataString = String.format("%s=\"%s\"",
-                        typeLabel, getTypeString(mtNode.getChangeType(i)));
+                        typeLabel, typeSet.getTypeName(mtNode.getChangeType(i)));
                 else
                     colourChangeNode.metaDataString = String.format("%s=%d",
                         typeLabel, mtNode.getChangeType(i));
@@ -607,9 +568,13 @@ public class MultiTypeTree extends Tree {
                         col = (int) typeObject;
                     else if (typeObject instanceof Double)
                         col = (int) Math.round((double)typeObject);
-                    else if (typeObject instanceof String)
-                        col = Integer.parseInt((String)typeObject);
-                    else
+                    else if (typeObject instanceof String) {
+                        try {
+                            col = Integer.parseInt((String) typeObject);
+                        } catch (NumberFormatException ex) {
+                            col = typeSet.getTypeIndex((String) typeObject);
+                        }
+                    } else
                         throw new IllegalArgumentException("Unrecognized type metadata.");
                     colours.add(col);
 
@@ -661,9 +626,13 @@ public class MultiTypeTree extends Tree {
                     nodeType = (int)typeObject;
                 else if (typeObject instanceof Double)
                     nodeType = (int)Math.round((Double)typeObject);
-                else if (typeObject instanceof String)
-                    nodeType = Integer.parseInt((String)typeObject);
-                else
+                else if (typeObject instanceof String) {
+                    try {
+                        nodeType = Integer.parseInt((String) typeObject);
+                    } catch (NumberFormatException ex) {
+                        nodeType = typeSet.getTypeIndex((String) typeObject);
+                    }
+                } else
                     throw new IllegalArgumentException("Unrecognised type metadata.");
 
                 treeNode.setNodeType(nodeType);
@@ -745,10 +714,7 @@ public class MultiTypeTree extends Tree {
         StackTraceElement[] ste = Thread.currentThread().getStackTrace();
         if (ste[2].getMethodName().equals("toXML")) {            
             // Use toShortNewick to generate Newick string without taxon labels
-            String string = getFlattenedTree(false).getRoot().toShortNewick(true);
-            
-            // Sanitize ampersands if this is destined for a state file.
-            return string.replaceAll("&", "&amp;");
+            return getFlattenedTree(false).getRoot().toShortNewick(true);
         } else{
             return getFlattenedTree(true).getRoot().toSortedNewick(new int[1], true);
         }
@@ -845,7 +811,7 @@ public class MultiTypeTree extends Tree {
     }
 
     @Override
-    public void log(int i, PrintStream printStream) {
+    public void log(long i, PrintStream printStream) {
         printStream.print("tree STATE_"+i+" = ");
         printStream.print(toString());
         printStream.print(";");

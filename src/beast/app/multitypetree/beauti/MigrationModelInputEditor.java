@@ -20,27 +20,20 @@ import beast.app.beauti.BeautiDoc;
 import beast.app.draw.InputEditor;
 import beast.core.BEASTInterface;
 import beast.core.Input;
+import beast.core.parameter.RealParameter;
 import beast.evolution.tree.SCMigrationModel;
-import java.awt.Color;
-import java.awt.Component;
-import java.awt.Dimension;
-import java.awt.GridBagConstraints;
-import java.awt.GridBagLayout;
-import java.awt.Insets;
-import java.awt.event.ItemEvent;
-import javax.swing.JCheckBox;
-import javax.swing.JLabel;
-import javax.swing.JPanel;
-import javax.swing.JSpinner;
-import javax.swing.JTable;
-import javax.swing.ListSelectionModel;
-import javax.swing.SpinnerNumberModel;
+
+import javax.swing.*;
 import javax.swing.border.EtchedBorder;
-import javax.swing.event.ChangeEvent;
 import javax.swing.event.TableModelEvent;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableCellRenderer;
+import javax.swing.table.TableColumn;
+import java.awt.*;
+import java.io.*;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * A BEAUti input editor for MigrationModels.
@@ -49,13 +42,20 @@ import javax.swing.table.TableCellRenderer;
  */
 public class MigrationModelInputEditor extends InputEditor.Base {
 
-    DefaultTableModel popSizeModel, rateMatrixModel;
-    SpinnerNumberModel nTypesModel;
-    SCMigrationModel migModel;
+    private DefaultTableModel popSizeModel, rateMatrixModel;
+    private DefaultListModel<String> fullTypeListModel, additionalTypeListModel;
+    private ListSelectionModel additionalTypeListSelectionModel;
+    private SCMigrationModel migModel;
 
-    JCheckBox popSizeEstCheckBox, rateMatrixEstCheckBox;
+    private JButton addTypeButton, remTypeButton, addTypesFromFileButton;
+    private JButton loadPopSizesFromFileButton, loadMigRatesFromFileButton;
 
-    boolean dimChangeInProgress = false;
+    private JCheckBox popSizeEstCheckBox, popSizeScaleFactorEstCheckBox;
+    private JCheckBox rateMatrixEstCheckBox, rateMatrixScaleFactorEstCheckBox;
+
+    boolean fileLoadInProgress = false;
+
+    List<String> rowNames = new ArrayList<>();
 
     public MigrationModelInputEditor(BeautiDoc doc) {
         super(doc);
@@ -81,16 +81,19 @@ public class MigrationModelInputEditor extends InputEditor.Base {
 
         // Create component models and fill them with data from input
         migModel = (SCMigrationModel) input.get();
-        nTypesModel = new SpinnerNumberModel(2, 2, Short.MAX_VALUE, 1);
+        fullTypeListModel = new DefaultListModel<>();
+        additionalTypeListModel = new DefaultListModel<>();
         popSizeModel = new DefaultTableModel();
         rateMatrixModel = new DefaultTableModel() {
             @Override
             public boolean isCellEditable(int row, int column) {
-                return row != column;
+                return row != column && column != migModel.getNTypes();
             }
         };
-        popSizeEstCheckBox = new JCheckBox("estimate");
-        rateMatrixEstCheckBox = new JCheckBox("estimate");
+        popSizeEstCheckBox = new JCheckBox("estimate pop. sizes");
+        rateMatrixEstCheckBox = new JCheckBox("estimate mig. rates");
+        popSizeScaleFactorEstCheckBox = new JCheckBox("estimate scale factor");
+        rateMatrixScaleFactorEstCheckBox = new JCheckBox("estimate scale factor");
         loadFromMigrationModel();
 
         JPanel panel = new JPanel(new GridBagLayout());
@@ -100,27 +103,82 @@ public class MigrationModelInputEditor extends InputEditor.Base {
         c.insets = new Insets(3, 3, 3, 3);
         c.weighty = 0.5;
 
-        // Deme count spinner:
+        // Type list:
         c.gridx = 0;
         c.gridy = 0;
         c.weightx = 0.0;
         c.anchor = GridBagConstraints.LINE_END;
-        panel.add(new JLabel("Number of demes: "), c);
-        JSpinner dimSpinner = new JSpinner(nTypesModel);
-        dimSpinner.setMaximumSize(new Dimension(100, Short.MAX_VALUE));
+        panel.add(new JLabel("<html><body>Type list:</body></html>"), c);
+
+        JList<String> jlist;
+
+        Box tlBox = Box.createHorizontalBox();
+        Box tlBoxLeft = Box.createVerticalBox();
+        JLabel labelLeft = new JLabel("All types");
+        tlBoxLeft.add(labelLeft);
+        jlist = new JList<>(fullTypeListModel);
+        jlist.setSelectionModel(new DefaultListSelectionModel() {
+            @Override
+            public void setSelectionInterval(int index0, int index1) {
+                super.setSelectionInterval(-1, -1);
+            }
+        });
+        JScrollPane listScrollPane = new JScrollPane(jlist);
+        listScrollPane.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);
+        tlBoxLeft.add(listScrollPane);
+        tlBox.add(tlBoxLeft);
+
+        Box tlBoxRight = Box.createVerticalBox();
+        JLabel labelRight = new JLabel("Additional types");
+        tlBoxRight.add(labelRight);
+        jlist = new JList<>(additionalTypeListModel);
+        additionalTypeListSelectionModel = jlist.getSelectionModel();
+        listScrollPane = new JScrollPane(jlist);
+        listScrollPane.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);
+        tlBoxRight.add(listScrollPane);
+        Box addRemBox = Box.createHorizontalBox();
+        addTypeButton = new JButton("+");
+        remTypeButton = new JButton("-");
+        remTypeButton.setEnabled(false);
+        addTypesFromFileButton = new JButton("Add from file...");
+        addRemBox.add(addTypeButton);
+        addRemBox.add(remTypeButton);
+        addRemBox.add(addTypesFromFileButton);
+        tlBoxRight.add(addRemBox);
+        tlBox.add(tlBoxRight);
+
         c.gridx = 1;
         c.gridy = 0;
         c.weightx = 1.0;
         c.anchor = GridBagConstraints.LINE_START;
-        panel.add(dimSpinner, c);
+        panel.add(tlBox, c);
 
         // Population size table
         c.gridx = 0;
         c.gridy = 1;
         c.weightx = 0.0;
         c.anchor = GridBagConstraints.LINE_END;
-        panel.add(new JLabel("Population sizes: "), c);
-        JTable popSizeTable = new JTable(popSizeModel);
+        Box  psBox = Box.createVerticalBox();
+        psBox.add(new JLabel("Population sizes: "), c);
+        loadPopSizesFromFileButton = new JButton("Load from file...");
+        psBox.add(loadPopSizesFromFileButton);
+        panel.add(psBox, c);
+
+        JTable popSizeTable = new JTable(popSizeModel) {
+            @Override
+            public TableCellRenderer getCellRenderer(int row, int column) {
+                return new DefaultTableCellRenderer() {
+                    @Override
+                    public Component getTableCellRendererComponent(
+                            JTable table, Object value, boolean isSelected,
+                            boolean hasFocus, int row, int column) {
+                        setHorizontalAlignment(SwingConstants.CENTER);
+                        return super.getTableCellRendererComponent(
+                                table, value, isSelected, hasFocus, row, column);
+                    }
+                };
+            }
+        };
         popSizeTable.setShowVerticalLines(true);
         popSizeTable.setCellSelectionEnabled(true);
         popSizeTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
@@ -131,12 +189,17 @@ public class MigrationModelInputEditor extends InputEditor.Base {
         c.weightx = 1.0;
         c.anchor = GridBagConstraints.LINE_START;
         panel.add(popSizeTable, c);
-        popSizeEstCheckBox.setSelected(migModel.popSizesInput.get().isEstimatedInput.get());
+
+        popSizeEstCheckBox.setSelected(((RealParameter)migModel.popSizesInput.get()).isEstimatedInput.get());
+        popSizeScaleFactorEstCheckBox.setSelected(((RealParameter)migModel.popSizesScaleFactorInput.get()).isEstimatedInput.get());
         c.gridx = 2;
         c.gridy = 1;
         c.anchor = GridBagConstraints.LINE_END;
         c.weightx = 1.0;
-        panel.add(popSizeEstCheckBox, c);
+        Box estBox = Box.createVerticalBox();
+        estBox.add(popSizeEstCheckBox);
+        estBox.add(popSizeScaleFactorEstCheckBox);
+        panel.add(estBox, c);
 
         // Migration rate table
         // (Uses custom cell renderer to grey out diagonal elements.)
@@ -144,109 +207,338 @@ public class MigrationModelInputEditor extends InputEditor.Base {
         c.gridy = 2;
         c.weightx = 0.0;
         c.anchor = GridBagConstraints.LINE_END;
-        panel.add(new JLabel("Migration rates: "), c);
+        Box mrBox = Box.createVerticalBox();
+        mrBox.add(new JLabel("Migration rates: "), c);
+        loadMigRatesFromFileButton = new JButton("Load from file...");
+        mrBox.add(loadMigRatesFromFileButton);
+        panel.add(mrBox, c);
+
         JTable rateMatrixTable = new JTable(rateMatrixModel) {
             @Override
             public TableCellRenderer getCellRenderer(int row, int column) {
-                if (row != column)
-                    return super.getCellRenderer(row, column);
-                else
-                    return new DefaultTableCellRenderer() {
-                        @Override
-                        public Component getTableCellRendererComponent(
-                            JTable table, Object value, boolean isSelected,
-                            boolean hasFocus, int row, int column) {
-                            JLabel label = new JLabel();
-                            label.setOpaque(true);
-                            label.setBackground(Color.GRAY);
-                            return label;
-                        }
-                    };
+
+                return new DefaultTableCellRenderer() {
+                            @Override
+                            public Component getTableCellRendererComponent(
+                                    JTable table, Object value, boolean isSelected,
+                                    boolean hasFocus, int row, int column) {
+
+
+
+                                if (row == column) {
+                                    JLabel label = new JLabel();
+                                    label.setOpaque(true);
+                                    label.setBackground(Color.GRAY);
+
+                                    return label;
+
+                                } else {
+
+                                    Component c = super.getTableCellRendererComponent(
+                                        table, value, isSelected, hasFocus, row, column);
+
+                                    if (column == migModel.getNTypes()) {
+                                        c.setBackground(panel.getBackground());
+                                        c.setForeground(Color.gray);
+                                        setHorizontalAlignment(SwingConstants.LEFT);
+                                    } else {
+                                        int l = 1, r = 1, t = 1, b=1;
+                                        if (column>0)
+                                            l = 0;
+                                        if (row>0)
+                                            t = 0;
+
+                                        setBorder(BorderFactory.createMatteBorder(t, l, b, r, Color.GRAY));
+                                        setHorizontalAlignment(SwingConstants.CENTER);
+                                    }
+                                    return c;
+                                }
+                            }
+                };
             }
         };
-        rateMatrixTable.setShowGrid(true);
+        rateMatrixTable.setShowGrid(false);
+        rateMatrixTable.setIntercellSpacing(new Dimension(0,0));
         rateMatrixTable.setCellSelectionEnabled(true);
         rateMatrixTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        rateMatrixTable.setMaximumSize(new Dimension(100, Short.MAX_VALUE));
+        rateMatrixTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+        TableColumn col = rateMatrixTable.getColumnModel().getColumn(migModel.getNTypes());
+
+
+        FontMetrics metrics = new Canvas().getFontMetrics(getFont());
+        int maxWidth = 0;
+        for (String rowName : rowNames)
+            maxWidth = Math.max(maxWidth, metrics.stringWidth(rowName + "M"));
+
+        col.setPreferredWidth(maxWidth);
 
         c.gridx = 1;
         c.gridy = 2;
         c.anchor = GridBagConstraints.LINE_START;
         c.weightx = 1.0;
         panel.add(rateMatrixTable, c);
-        rateMatrixEstCheckBox.setSelected(migModel.rateMatrixInput.get().isEstimatedInput.get());
 
+        rateMatrixEstCheckBox.setSelected(((RealParameter)migModel.rateMatrixInput.get()).isEstimatedInput.get());
+        rateMatrixScaleFactorEstCheckBox.setSelected(((RealParameter)migModel.rateMatrixScaleFactorInput.get()).isEstimatedInput.get());
         c.gridx = 2;
         c.gridy = 2;
         c.anchor = GridBagConstraints.LINE_END;
         c.weightx = 1.0;
-        panel.add(rateMatrixEstCheckBox, c);
+        estBox = Box.createVerticalBox();
+        estBox.add(rateMatrixEstCheckBox);
+        estBox.add(rateMatrixScaleFactorEstCheckBox);
+        panel.add(estBox, c);
+
+        c.gridx = 1;
+        c.gridy = 3;
+        c.anchor = GridBagConstraints.LINE_START;
+        c.weightx = 1.0;
+        panel.add(new JLabel("Rows: sources, columns: sinks (backwards in time)"), c);
+
+        c.gridx = 1;
+        c.gridy = 4;
+        c.anchor = GridBagConstraints.LINE_START;
+        c.weightx = 1.0;
+        JLabel multilineLabel = new JLabel();
+        multilineLabel.setText("<html><body>Correspondence between row/col indices<br>"
+                + "and deme names shown to right of matrix.</body></html>");
+        panel.add(multilineLabel, c);
 
         add(panel);
  
 
         // Event handlers
-
-        dimSpinner.addChangeListener((ChangeEvent e) -> {
-            JSpinner spinner = (JSpinner)e.getSource();
-            int newDim = (int)spinner.getValue();
-
-            dimChangeInProgress = true;
-
-            popSizeModel.setColumnCount(newDim);
-            migModel.popSizesInput.get().setDimension(newDim);
-            rateMatrixModel.setColumnCount(newDim);
-            rateMatrixModel.setRowCount(newDim);
-            migModel.rateMatrixInput.get().setDimension(newDim*newDim);
-            for (int i=0; i<newDim; i++) {
-                if (popSizeModel.getValueAt(0, i) == null) {
-                    popSizeModel.setValueAt(1.0, 0, i);
-                }
-                for (int j=0; j<newDim; j++) {
-                    if (i==j)
-                        continue;
-                    if (rateMatrixModel.getValueAt(j, i) == null) {
-                        rateMatrixModel.setValueAt(1.0, j, i);
-                    }
-                }
-            }
-
-            dimChangeInProgress = false;
-
-            saveToMigrationModel();
-        });
-
-        popSizeModel.addTableModelListener((TableModelEvent e) -> {
+        popSizeModel.addTableModelListener(e -> {
             if (e.getType() != TableModelEvent.UPDATE)
                 return;
             
-            if (!dimChangeInProgress)
+            if (!fileLoadInProgress)
                 saveToMigrationModel();
         });
 
-        popSizeEstCheckBox.addItemListener((ItemEvent e) -> {
-            saveToMigrationModel();
-        });
+        popSizeEstCheckBox.addItemListener(e -> saveToMigrationModel());
 
-        rateMatrixModel.addTableModelListener((TableModelEvent e) -> {
+        popSizeScaleFactorEstCheckBox.addItemListener(e -> saveToMigrationModel());
+
+        rateMatrixModel.addTableModelListener(e -> {
             if (e.getType() != TableModelEvent.UPDATE)
                 return;
 
-            if (!dimChangeInProgress)
+            if (!fileLoadInProgress)
                 saveToMigrationModel();
         });
 
-        rateMatrixEstCheckBox.addItemListener((ItemEvent e) -> {
+        rateMatrixEstCheckBox.addItemListener(e -> saveToMigrationModel());
+
+        rateMatrixScaleFactorEstCheckBox.addItemListener(e -> saveToMigrationModel());
+
+        addTypeButton.addActionListener(e -> {
+            String newTypeName = JOptionPane.showInputDialog("Name of type");
+
+            if (newTypeName != null) {
+                if (migModel.getTypeSet().containsTypeWithName(newTypeName)) {
+                    JOptionPane.showMessageDialog(panel, "Type with this name already present.",
+                            "Error", JOptionPane.ERROR_MESSAGE);
+                } else {
+                    additionalTypeListModel.add(additionalTypeListModel.size(), newTypeName);
+                    saveToMigrationModel();
+                }
+            }
+        });
+
+        addTypesFromFileButton.addActionListener(e -> {
+            JFileChooser fc = new JFileChooser();
+            fc.setDialogTitle("Choose file containing type names (one per line)");
+            fc.setFileSelectionMode(JFileChooser.FILES_ONLY);
+            fc.setMultiSelectionEnabled(false);
+            int result = fc.showDialog(panel, "Load");
+
+            if (result == JFileChooser.APPROVE_OPTION) {
+                File file = fc.getSelectedFile();
+
+                try {
+                    BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(file)));
+
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        line = line.trim();
+                        if (!line.isEmpty())
+                            additionalTypeListModel.add(additionalTypeListModel.size(), line);
+                    }
+
+                    saveToMigrationModel();
+
+                } catch (IOException e1) {
+                    JOptionPane.showMessageDialog(panel,
+                            "Error reading from file: " + e1.getMessage(),
+                            "Error", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        });
+
+        additionalTypeListSelectionModel.addListSelectionListener(e -> {
+            if (additionalTypeListSelectionModel.getMinSelectionIndex()<0)
+                remTypeButton.setEnabled(false);
+            else
+                remTypeButton.setEnabled(true);
+        });
+
+        remTypeButton.addActionListener(e -> {
+            int selectionMin = additionalTypeListSelectionModel.getMinSelectionIndex();
+            int selectionMax = additionalTypeListSelectionModel.getMaxSelectionIndex();
+
+            additionalTypeListModel.removeRange(selectionMin, selectionMax);
+
+            additionalTypeListSelectionModel.clearSelection();
+
             saveToMigrationModel();
+        });
+
+        loadPopSizesFromFileButton.addActionListener(e -> {
+            JFileChooser fc = new JFileChooser();
+            fc.setDialogTitle("Choose file containing population sizes (one per line)");
+            fc.setFileSelectionMode(JFileChooser.FILES_ONLY);
+            fc.setMultiSelectionEnabled(false);
+            int result = fc.showDialog(panel, "Load");
+
+            if (result == JFileChooser.APPROVE_OPTION) {
+                File file = fc.getSelectedFile();
+
+                try {
+                    BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(file)));
+
+                    List<Double> popSizes = new ArrayList<>();
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        line = line.trim();
+                        if (!line.isEmpty())
+                            popSizes.add(Double.parseDouble(line));
+                    }
+
+                    if (popSizes.size() == migModel.getNTypes()) {
+                        fileLoadInProgress = true;
+
+                        for (int i=0; i<popSizes.size(); i++)
+                            popSizeModel.setValueAt(popSizes.get(i), 0, i);
+
+                        fileLoadInProgress = false;
+
+                        saveToMigrationModel();
+                    } else {
+                        JOptionPane.showMessageDialog(panel,
+                                "<html>File must contain exactly one population<br> size for each type/deme.</html>",
+                                "Error", JOptionPane.ERROR_MESSAGE);
+                    }
+
+                } catch (IOException ex) {
+                    JOptionPane.showMessageDialog(panel,
+                            "Error reading from file: " + ex.getMessage(),
+                            "Error", JOptionPane.ERROR_MESSAGE);
+                } catch (NumberFormatException ex) {
+                    JOptionPane.showMessageDialog(panel,
+                            "<html>File contains non-numeric line. " +
+                                    "Every line must contain<br> exactly one population size.</html>",
+                            "Error", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        });
+
+        loadMigRatesFromFileButton.addActionListener(e -> {
+            JFileChooser fc = new JFileChooser();
+            fc.setDialogTitle("Choose CSV file containing migration rate matrix (diagonal ignored)");
+            fc.setFileSelectionMode(JFileChooser.FILES_ONLY);
+            fc.setMultiSelectionEnabled(false);
+            int result = fc.showDialog(panel, "Load");
+
+            if (result == JFileChooser.APPROVE_OPTION) {
+                File file = fc.getSelectedFile();
+
+                try {
+                    BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(file)));
+
+                    List<Double> migRates = new ArrayList<>();
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        line = line.trim();
+                        for (String field : line.split(",")) {
+                            if (!field.isEmpty())
+                                migRates.add(Double.parseDouble(field));
+                        }
+                    }
+
+                    boolean diagonalsPresent = (migRates.size() == migModel.getNTypes()*migModel.getNTypes());
+                    if (diagonalsPresent || migRates.size() == migModel.getNTypes()*(migModel.getNTypes()-1)) {
+
+                        fileLoadInProgress = true;
+
+                        for (int i=0; i<migModel.getNTypes(); i++) {
+                            for (int j=0; j<migModel.getNTypes(); j++) {
+                                if (i==j)
+                                    continue;
+
+                                int offset;
+                                if (diagonalsPresent)
+                                    offset = i*migModel.getNTypes() + j;
+                                else {
+                                    offset = i * (migModel.getNTypes() - 1) + j;
+                                    if (j>i)
+                                        offset -= 1;
+                                }
+
+                                rateMatrixModel.setValueAt(migRates.get(offset), i, j);
+                            }
+                        }
+
+                        fileLoadInProgress = false;
+
+                        saveToMigrationModel();
+                    } else {
+                        JOptionPane.showMessageDialog(panel,
+                                "<html>CSV file must contain a square matrix with exactly one<br>" +
+                                        "row for each type/deme.</html>",
+                                "Error", JOptionPane.ERROR_MESSAGE);
+                    }
+
+                } catch (IOException ex) {
+                    JOptionPane.showMessageDialog(panel,
+                            "Error reading from file: " + ex.getMessage(),
+                            "Error", JOptionPane.ERROR_MESSAGE);
+                } catch (NumberFormatException ex) {
+                    JOptionPane.showMessageDialog(panel,
+                            "<html>CSV file contains non-numeric element.</html",
+                            "Error", JOptionPane.ERROR_MESSAGE);
+                }
+            }
         });
     }
 
-    public void loadFromMigrationModel() {
-        nTypesModel.setValue(migModel.getNTypes());
+    private void loadFromMigrationModel() {
+        migModel.getTypeSet().initAndValidate();
+
+        additionalTypeListModel.clear();
+        if (migModel.getTypeSet().valueInput.get() != null) {
+            for (String typeName : migModel.getTypeSet().valueInput.get().split(","))
+                if (!typeName.isEmpty())
+                    additionalTypeListModel.add(additionalTypeListModel.size(), typeName);
+        }
+
         popSizeModel.setRowCount(1);
         popSizeModel.setColumnCount(migModel.getNTypes());
         rateMatrixModel.setRowCount(migModel.getNTypes());
-        rateMatrixModel.setColumnCount(migModel.getNTypes());
+        rateMatrixModel.setColumnCount(migModel.getNTypes()+1);
+
+        List<String> typeNames = migModel.getTypeSet().getTypesAsList();
+        fullTypeListModel.removeAllElements();
+        for (String typeName : typeNames)
+            fullTypeListModel.add(fullTypeListModel.size(), typeName);
+
+        rowNames.clear();
+        for (int i = 0; i < migModel.getNTypes(); i++) {
+        if (i < typeNames.size())
+            rowNames.add(" " + typeNames.get(i) + " (" + String.valueOf(i) + ") ");
+        else
+            rowNames.add(" (" + String.valueOf(i) + ") ");
+        }
 
         for (int i=0; i<migModel.getNTypes(); i++) {
             popSizeModel.setValueAt(migModel.getPopSize(i), 0, i);
@@ -255,32 +547,47 @@ public class MigrationModelInputEditor extends InputEditor.Base {
                     continue;
                 rateMatrixModel.setValueAt(migModel.getBackwardRate(i, j), i, j);
             }
+
+            rateMatrixModel.setValueAt(rowNames.get(i), i, migModel.getNTypes());
         }
 
-        popSizeEstCheckBox.setSelected(migModel.popSizesInput.get().isEstimatedInput.get());
-        rateMatrixEstCheckBox.setSelected(migModel.rateMatrixInput.get().isEstimatedInput.get());
+        popSizeEstCheckBox.setSelected(((RealParameter)migModel.popSizesInput.get()).isEstimatedInput.get());
+        rateMatrixEstCheckBox.setSelected(((RealParameter)migModel.rateMatrixInput.get()).isEstimatedInput.get());
     }
 
-    public void saveToMigrationModel() {
+    private void saveToMigrationModel() {
+
+        StringBuilder sbAdditionalTypes = new StringBuilder();
+        for (int i=0; i<additionalTypeListModel.size(); i++) {
+            if (i > 0)
+                sbAdditionalTypes.append(",");
+            sbAdditionalTypes.append(additionalTypeListModel.get(i));
+        }
+
+        migModel.typeSetInput.get().valueInput.setValue(
+                sbAdditionalTypes.toString(),
+                migModel.typeSetInput.get());
+        migModel.typeSetInput.get().initAndValidate();
+
         StringBuilder sbPopSize = new StringBuilder();
-        for (int i=0; i<popSizeModel.getColumnCount(); i++) {
+        for (int i=0; i<migModel.getNTypes(); i++) {
             if (i>0)
                 sbPopSize.append(" ");
 
-            if (popSizeModel.getValueAt(0, i) != null)
+            if (i < popSizeModel.getColumnCount() && popSizeModel.getValueAt(0, i) != null)
                 sbPopSize.append(popSizeModel.getValueAt(0, i));
             else
                 sbPopSize.append("1.0");
         }
-        migModel.popSizesInput.get().setDimension(popSizeModel.getColumnCount());
-        migModel.popSizesInput.get().valuesInput.setValue(
+        ((RealParameter)migModel.popSizesInput.get()).setDimension(migModel.getNTypes());
+        ((RealParameter)migModel.popSizesInput.get()).valuesInput.setValue(
             sbPopSize.toString(),
-            migModel.popSizesInput.get());
+                (RealParameter)migModel.popSizesInput.get());
 
         StringBuilder sbRateMatrix = new StringBuilder();
         boolean first = true;
-        for (int i=0; i<rateMatrixModel.getRowCount(); i++) {
-            for (int j=0; j<rateMatrixModel.getColumnCount(); j++) {
+        for (int i=0; i<migModel.getNTypes(); i++) {
+            for (int j=0; j<migModel.getNTypes(); j++) {
                 if (i == j)
                     continue;
 
@@ -289,26 +596,30 @@ public class MigrationModelInputEditor extends InputEditor.Base {
                 else
                     sbRateMatrix.append(" ");
 
-                if (rateMatrixModel.getValueAt(i, j) != null)
+                if (i<rateMatrixModel.getRowCount() && j<rateMatrixModel.getColumnCount()-1 && rateMatrixModel.getValueAt(i, j) != null)
                     sbRateMatrix.append(rateMatrixModel.getValueAt(i, j));
                 else
                     sbRateMatrix.append("1.0");
             }
         }
-        migModel.rateMatrixInput.get().setDimension(
-            popSizeModel.getColumnCount()*(popSizeModel.getColumnCount()-1));
-        migModel.rateMatrixInput.get().valuesInput.setValue(
+        ((RealParameter)migModel.rateMatrixInput.get()).setDimension(
+            migModel.getNTypes()*(migModel.getNTypes()-1));
+        ((RealParameter)migModel.rateMatrixInput.get()).valuesInput.setValue(
             sbRateMatrix.toString(),
-            migModel.rateMatrixInput.get());
+                (RealParameter)migModel.rateMatrixInput.get());
 
-        migModel.popSizesInput.get().isEstimatedInput.setValue(
-            popSizeEstCheckBox.isSelected(), migModel.popSizesInput.get());
-        migModel.rateMatrixInput.get().isEstimatedInput.setValue(
-            rateMatrixEstCheckBox.isSelected(), migModel.rateMatrixInput.get());
+        ((RealParameter)migModel.popSizesInput.get()).isEstimatedInput.setValue(
+            popSizeEstCheckBox.isSelected(), (RealParameter)migModel.popSizesInput.get());
+        ((RealParameter)migModel.popSizesScaleFactorInput.get()).isEstimatedInput.setValue(
+                popSizeScaleFactorEstCheckBox.isSelected(), (RealParameter)migModel.popSizesScaleFactorInput.get());
+        ((RealParameter)migModel.rateMatrixInput.get()).isEstimatedInput.setValue(
+            rateMatrixEstCheckBox.isSelected(), (RealParameter)migModel.rateMatrixInput.get());
+        ((RealParameter)migModel.rateMatrixScaleFactorInput.get()).isEstimatedInput.setValue(
+                rateMatrixScaleFactorEstCheckBox.isSelected(), (RealParameter)migModel.rateMatrixScaleFactorInput.get());
 
         try {
-            migModel.rateMatrixInput.get().initAndValidate();
-            migModel.popSizesInput.get().initAndValidate();
+            ((RealParameter)migModel.rateMatrixInput.get()).initAndValidate();
+            ((RealParameter)migModel.popSizesInput.get()).initAndValidate();
             migModel.initAndValidate();
         } catch (Exception ex) {
             System.err.println("Error updating migration model state.");

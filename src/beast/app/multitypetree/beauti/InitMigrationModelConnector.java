@@ -19,11 +19,13 @@ package beast.app.multitypetree.beauti;
 import beast.app.beauti.BeautiDoc;
 import beast.core.BEASTInterface;
 import beast.core.parameter.Parameter;
+import beast.core.parameter.RealParameter;
 import beast.evolution.likelihood.TreeLikelihood;
 import beast.evolution.tree.SCMigrationModel;
 import beast.evolution.tree.StructuredCoalescentMultiTypeTree;
+import beast.evolution.tree.TraitSet;
 
-import java.util.List;
+import java.util.*;
 
 
 /**
@@ -36,7 +38,16 @@ import java.util.List;
  * @author Tim Vaughan (tgvaughan@gmail.com)
  */
 public class InitMigrationModelConnector {
-    
+
+    public static List<String> uniqueTraitsInData(StructuredCoalescentMultiTypeTree scTree) {
+        SortedSet<String> uniqueTypes = new TreeSet<>();
+        TraitSet typeTraitSet = scTree.typeTraitInput.get();
+        for (String taxonName : typeTraitSet.taxaInput.get().getTaxaNames())
+            uniqueTypes.add(typeTraitSet.getStringValue(taxonName));
+
+        return new ArrayList<>(uniqueTypes);
+    }
+
     public static boolean customConnector(BeautiDoc doc) {
 
         for (BEASTInterface p : doc.getPartitions("Tree")) {
@@ -52,24 +63,59 @@ public class InitMigrationModelConnector {
             SCMigrationModel migModelInit = (SCMigrationModel)doc.pluginmap.get(
                 "migModelInit.t:" + pID);
 
-            String rateMatrixStr = getParameterString(migModel.rateMatrixInput.get());
-            String popSizesStr = getParameterString(migModel.popSizesInput.get());
+            String rateMatrixStr = getParameterString((RealParameter)migModel.rateMatrixInput.get());
+            String popSizesStr = getParameterString((RealParameter)migModel.popSizesInput.get());
 
-            migModelInit.popSizesInput.get().setDimension(migModel.getNTypes());
+            // Ensure model has appropriate number of demes
 
-            migModelInit.popSizesInput.get().valuesInput.setValue(
+            int uniqueTraitCount = uniqueTraitsInData(tree).size();
+            StringBuilder rateMatrixStrBuilder = new StringBuilder();
+            StringBuilder popSizesStrBuilder = new StringBuilder();
+
+            migModel.getTypeSet().initAndValidate();
+
+            if (migModel.popSizesInput.get().getDimension() != migModel.getNTypes()) {
+                for (int i=0; i<migModel.getNTypes(); i++) {
+                    popSizesStrBuilder.append(" 1.0");
+                    for (int j=0; j<migModel.getNTypes(); j++) {
+                        if (j == i)
+                            continue;
+
+                        rateMatrixStrBuilder.append(" 1.0");
+                    }
+                }
+
+                popSizesStr = popSizesStrBuilder.toString();
+                rateMatrixStr = rateMatrixStrBuilder.toString();
+
+                ((RealParameter)migModel.popSizesInput.get()).setDimension(migModel.getNTypes());
+                ((RealParameter)migModel.popSizesInput.get()).valuesInput.setValue(popSizesStr,
+                        (RealParameter)migModel.popSizesInput.get());
+
+                ((RealParameter)migModel.rateMatrixInput.get()).setDimension(migModel.getNTypes()*(migModel.getNTypes()-1));
+                ((RealParameter)migModel.rateMatrixInput.get()).valuesInput.setValue(rateMatrixStr,
+                        (RealParameter)migModel.rateMatrixInput.get());
+
+                ((RealParameter)migModel.popSizesInput.get()).initAndValidate();
+                ((RealParameter)migModel.rateMatrixInput.get()).initAndValidate();
+                migModel.initAndValidate();
+            }
+
+            ((RealParameter)migModelInit.popSizesInput.get()).setDimension(migModel.getNTypes());
+
+            ((RealParameter)migModelInit.popSizesInput.get()).valuesInput.setValue(
                 popSizesStr,
-                migModelInit.popSizesInput.get());
+                    (RealParameter)migModelInit.popSizesInput.get());
 
-            migModelInit.rateMatrixInput.get().setDimension(
+            ((RealParameter)migModelInit.rateMatrixInput.get()).setDimension(
                 migModel.getNTypes()*(migModel.getNTypes()-1));
-            migModelInit.rateMatrixInput.get().valuesInput.setValue(
+            ((RealParameter)migModelInit.rateMatrixInput.get()).valuesInput.setValue(
                 rateMatrixStr,
-                migModelInit.rateMatrixInput.get());
+                    (RealParameter)migModelInit.rateMatrixInput.get());
 
             try {
-                migModelInit.popSizesInput.get().initAndValidate();
-                migModelInit.rateMatrixInput.get().initAndValidate();
+                ((RealParameter)migModelInit.popSizesInput.get()).initAndValidate();
+                ((RealParameter)migModelInit.rateMatrixInput.get()).initAndValidate();
                 migModelInit.initAndValidate();
             } catch (Exception ex) {
                 System.err.println("Error configuring initial migration model.");

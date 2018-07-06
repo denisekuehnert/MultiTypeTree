@@ -48,6 +48,10 @@ public class MultiTypeTreeStatLogger extends Logger {
     List<Double> heights = new ArrayList();
     double [] heightsArray;
     double heightMean, heightVar, heightESS;
+
+    public MultiTypeTreeStatLogger () {
+        loggersInput.setRule(Validate.OPTIONAL);
+    }
     
     @Override
     public void initAndValidate() {
@@ -62,7 +66,7 @@ public class MultiTypeTreeStatLogger extends Logger {
     }
 
     @Override
-    public void log(int nSample) {
+    public void log(long nSample) {
         
         if ((nSample < 0) || (nSample % logEvery > 0))
             return;

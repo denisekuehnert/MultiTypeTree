@@ -543,6 +543,7 @@ t128=3">
    <migrationModel spec='SCMigrationModel' id='migModel'>
      <rateMatrix spec='RealParameter' value="1.0" dimension="2" id="rateMatrix"/>
      <popSizes spec='RealParameter' value="1.0" dimension="2" id="popSizes"/>
+     <typeSet id="typeSet" spec='TypeSet' typeTraitSet="@typeTraitSet"/>
    </migrationModel>
  
    <!-- Parameter priors -->
@@ -583,9 +584,11 @@ t128=3">
          <migrationModel spec='SCMigrationModel'>
              <rateMatrix spec='RealParameter' value="1.0" dimension="2"/>
              <popSizes spec='RealParameter' value="1.0" dimension="2"/>
+             <typeSet idref="typeSet"/>
          </migrationModel>
          <trait idref='typeTraitSet'/>
          <trait idref='timeTraitSet'/>
+         <typeSet idref="typeSet"/>
      </init>
 
      <state>
@@ -682,7 +685,7 @@ t128=3">
 
      <!-- Loggers -->
      
-     <logger logEvery="1000" fileName="structuredCoalescent.log">
+     <logger logEvery="1000" fileName="$(filebase).log">
        <model idref='posterior'/>
        <log idref="posterior"/>
        <log idref="treeLikelihood"/>
@@ -693,6 +696,9 @@ t128=3">
        <log idref="hky.freq"/>
        <log spec='TreeHeightLogger' tree='@tree'/>
        <log spec='TreeLengthLogger' tree='@tree'/>
+       <log spec='TypeLengths' multiTypeTree="@tree"
+            migrationModel="@migModel" id="typeLengths" />
+       <log spec='Sum' arg="@typeLengths" id="totalLength" />
        <log spec='TypeChangeCounts' multiTypeTree="@tree"
             migrationModel="@migModel" id="typeChangeCounts" />
        <log spec='Sum' arg="@typeChangeCounts" id="totalTypeChanges" />
@@ -701,12 +707,12 @@ t128=3">
        <log spec='TreeRootTypeLogger' multiTypeTree="@tree"/>
      </logger>
 
-     <logger logEvery="10000" fileName="structuredCoalescent.trees" mode="tree">
+     <logger logEvery="10000" fileName="$(filebase).trees" mode="tree">
        <log idref="tree"/>
      </logger>
 
 
-     <logger logEvery="10000" fileName="typedNode.trees" mode="tree">
+     <logger logEvery="10000" fileName="$(filebase).typedNode.trees" mode="tree">
          <log spec='TypedNodeTreeLogger' multiTypeTree="@tree"/>
      </logger>
 

@@ -51,6 +51,7 @@ public class TreeRootTypeLogger extends CalculationNode implements Loggable, Fun
 
     @Override
     public void init(PrintStream out) {
+
         if (getID() == null || getID().matches("\\s*")) {
             out.print(mtTree.getID() + ".rootColor\t");
         } else {
@@ -59,9 +60,9 @@ public class TreeRootTypeLogger extends CalculationNode implements Loggable, Fun
     }
 
     @Override
-    public void log(int nSample, PrintStream out) {
+    public void log(long nSample, PrintStream out) {
         if (logStringTypesInput.get())
-            out.print(mtTree.getTypeString(((MultiTypeNode)mtTree.getRoot()).getNodeType()) + "\t");
+            out.print(mtTree.getTypeSet().getTypeName(((MultiTypeNode)mtTree.getRoot()).getNodeType()) + "\t");
         else
             out.print(((MultiTypeNode)mtTree.getRoot()).getNodeType() + "\t");
     }

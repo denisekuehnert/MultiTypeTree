@@ -10,9 +10,9 @@ operators contained in this package can also be used as the basis for
 structured population inference under other models.
 
 For further information, please refer to the MultiTypeTree [web
-page](http://compevol.github.com/MultiTypeTree).
+page](http://tgvaughan.github.com/MultiTypeTree).
 
-[![Build Status](https://travis-ci.org/CompEvol/MultiTypeTree.svg?branch=master)](https://travis-ci.org/CompEvol/MultiTypeTree)
+[![Build Status](https://travis-ci.org/tgvaughan/MultiTypeTree.svg?branch=master)](https://travis-ci.org/tgvaughan/MultiTypeTree)
 
 License
 -------

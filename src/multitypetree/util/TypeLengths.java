@@ -18,23 +18,20 @@ package multitypetree.util;
 
 import beast.core.*;
 import beast.core.Input.Validate;
-import beast.evolution.tree.SCMigrationModel;
-import beast.evolution.tree.MultiTypeNode;
-import beast.evolution.tree.MultiTypeTree;
-import beast.evolution.tree.Node;
+import beast.evolution.tree.*;
 
 import java.io.PrintStream;
 
 /**
  * @author Tim Vaughan <tgvaughan@gmail.com>
  */
-@Description("Allows logging and defining distributions over number of"
-        + " each node type on a multi-type tree.")
-public class NodeTypeCounts extends CalculationNode implements Function, Loggable {
+@Description("Allows logging and defining distributions over the lengths of"
+        + " time lineages spend in each type on a multi-type tree.")
+public class TypeLengths extends CalculationNode implements Function, Loggable {
 
     public Input<MultiTypeTree> multiTypeTreeInput = new Input<>(
             "multiTypeTree",
-            "Multi-type tree whose changes will be counted.",
+            "Multi-type tree whose type-associated lengths will be recorded.",
             Validate.REQUIRED);
 
     public Input<SCMigrationModel> migrationModelInput = new Input<>(
@@ -42,34 +39,20 @@ public class NodeTypeCounts extends CalculationNode implements Function, Loggabl
         "Migration model needed to specify number of demes.",
         Validate.REQUIRED);
 
-    public Input<Boolean> internalOnlyInput = new Input<>(
-            "internalNodesOnly",
-            "Only count types of internal nodes.",
-            true);
-
-    public Input<Boolean> useCacheInput = new Input<>(
-            "useCache", "Cache counts, updating only when tree changes. "
-            + "Warning: this will cause problems if this TypeChangeCounts "
-            + "is not used in the target distribution.", false);
-
     private MultiTypeTree mtTree;
+    private MigrationModel migModel;
 
-    private int nTypes;
+    private double[] typeLengths;
 
-    private int[] nodeTypeCounts;
-    private boolean useCache, dirty;
-
-    public NodeTypeCounts() { };
+    public TypeLengths() { }
     
     @Override
     public void initAndValidate() {
         mtTree = multiTypeTreeInput.get();
-        nTypes = migrationModelInput.get().getNTypes();
+        migModel = migrationModelInput.get();
+
+        typeLengths = new double[migModel.getNTypes()];
         
-        nodeTypeCounts = new int[nTypes];
-        
-        useCache = useCacheInput.get();
-        dirty = true;
         update();
     }
     
@@ -77,42 +60,48 @@ public class NodeTypeCounts extends CalculationNode implements Function, Loggabl
      * Update type change count array as necessary.
      */
     private void update() {
-        if (!dirty)
-            return;
-        
-        // Zero count array
-        for (int i=0; i<nodeTypeCounts.length; i++)
-            nodeTypeCounts[i] = 0;
+
+        // Zero type change count array
+        for (int i=0; i<typeLengths.length; i++)
+            typeLengths[i] = 0.0;
         
         // Recalculate array elements
-        if (internalOnlyInput.get()) {
-            for (Node node : mtTree.getInternalNodes())
-                nodeTypeCounts[((MultiTypeNode) node).getNodeType()] += 1;
-        } else {
-            for (Node node : mtTree.getNodesAsArray())
-                nodeTypeCounts[((MultiTypeNode) node).getNodeType()] += 1;
+        for (Node node : mtTree.getNodesAsArray()) {
+            if (node.isRoot()) {
+                continue;
+            }
+
+            MultiTypeNode mtNode = (MultiTypeNode)node;
+            int thisType = mtNode.getNodeType();
+            double lastTime = mtNode.getHeight();
+            for (int i = 0; i < mtNode.getChangeCount(); i++) {
+                int nextType = mtNode.getChangeType(i);
+                double nextTime = mtNode.getChangeTime(i);
+                typeLengths[thisType] += (nextTime - lastTime);
+                thisType = nextType;
+                lastTime = nextTime;
+            }
+
+            typeLengths[thisType] += mtNode.getParent().getHeight() - lastTime;
         }
-
-        if (useCache)
-            dirty = false;
     }
-
+    
     @Override
     public int getDimension() {
-        return nTypes;
+        return migModel.getNTypes()*(migModel.getNTypes()-1);
     }
 
     @Override
     public double getArrayValue() {
         update();
-        return nodeTypeCounts[0];
+        return typeLengths[0];
     }
 
     @Override
     public double getArrayValue(int iDim) {
         if (iDim<getDimension()) {
             update();
-            return nodeTypeCounts[iDim];
+            return typeLengths[iDim];
         } else
             return Double.NaN;
     }
@@ -122,16 +111,17 @@ public class NodeTypeCounts extends CalculationNode implements Function, Loggabl
         
         String idString = mtTree.getID();
 
-        for (int type = 0; type < nTypes; type++)
-            out.print(idString + ".count_" + mtTree.getTypeSet().getTypeName(type) + "\t");
+        for (int type = 0; type < migModel.getNTypes(); type++)
+            out.print(idString + ".length_" + migModel.getTypeSet().getTypeName(type) + "\t");
     }
 
     @Override
     public void log(long nSample, PrintStream out) {
         update();
         
-        for (int type = 0; type < nTypes; type++)
-            out.print(nodeTypeCounts[type] + "\t");
+        for (int type = 0; type < migModel.getNTypes(); type++) {
+            out.print(typeLengths[type] + "\t");
+        }
     }
 
     @Override
@@ -139,7 +129,6 @@ public class NodeTypeCounts extends CalculationNode implements Function, Loggabl
     
     @Override
     public boolean requiresRecalculation() {
-        dirty = true;
         return true;
     }
     

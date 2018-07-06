@@ -1,12 +1,15 @@
 package beast.evolution.tree;
 
+import beast.core.BEASTInterface;
 import org.jblas.DoubleMatrix;
 
 /**
  * @author Tim Vaughan <tgvaughan@gmail.com>
  */
-public interface MigrationModel {
+public interface MigrationModel extends BEASTInterface {
     int getNTypes();
+
+    TypeSet getTypeSet();
 
     double getBackwardRate(int i, int j);
 
@@ -21,4 +24,5 @@ public interface MigrationModel {
     DoubleMatrix getRpowN(int n, boolean symmetric);
 
     int RpowSteadyN(boolean symmetric);
+
 }

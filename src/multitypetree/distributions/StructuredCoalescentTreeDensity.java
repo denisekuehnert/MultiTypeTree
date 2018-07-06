@@ -75,6 +75,10 @@ public class StructuredCoalescentTreeDensity extends MultiTypeTreeDistribution {
 
         eventList = new ArrayList<>();
         lineageCountList = new ArrayList<>();
+
+        // Ensure tree and migration model are compatible
+        if (mtTree.hasTypeTrait() && !mtTree.getTypeSet().equals(migrationModel.getTypeSet()))
+            throw new IllegalArgumentException("Tree and migration model have incompatible type sets.");
     }
 
     @Override

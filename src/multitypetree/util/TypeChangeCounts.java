@@ -149,14 +149,14 @@ public class TypeChangeCounts extends CalculationNode implements Function, Logga
                 if (type == typeP) {
                     continue;
                 }
-                out.print(idString + ".count_" + mtTree.getTypeString(type)
-                    + "_to_" + mtTree.getTypeString(typeP) + "\t");
+                out.print(idString + ".count_" + mtTree.getTypeSet().getTypeName(type)
+                    + "_to_" + mtTree.getTypeSet().getTypeName(typeP) + "\t");
             }
         }
     }
 
     @Override
-    public void log(int nSample, PrintStream out) {
+    public void log(long nSample, PrintStream out) {
         update();
         
         for (int type = 0; type < nTypes; type++) {

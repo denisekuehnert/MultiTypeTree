@@ -19,6 +19,7 @@ package multitypetree.util;
 import beast.core.Distribution;
 import beast.core.Input;
 import beast.core.Input.Validate;
+import beast.evolution.tree.MigrationModel;
 import beast.evolution.tree.MultiTypeTree;
 import beast.evolution.tree.Tree;
 import java.io.PrintStream;
@@ -49,11 +50,6 @@ public class MAPTreeLogger extends Tree {
 
         currentMAPTree = multiTypeTreeInput.get().copy();
         currentMAPTree.setTypeTrait(multiTypeTreeInput.get().getTypeTrait());
-        if (multiTypeTreeInput.get().typeTraitValuesInput.get() != null) {
-            currentMAPTree.typeTraitValuesInput.setValue(
-                    multiTypeTreeInput.get().typeTraitValuesInput.get(),
-                    currentMAPTree);
-        }
         currentMAPTree.initAndValidate();
         maxPosterior = Double.NEGATIVE_INFINITY;
     }
@@ -64,7 +60,7 @@ public class MAPTreeLogger extends Tree {
     }
 
     @Override
-    public void log(int nSample, PrintStream out) {
+    public void log(long nSample, PrintStream out) {
         if (posteriorInput.get().getCurrentLogP()>maxPosterior) {
             maxPosterior = posteriorInput.get().getCurrentLogP();
             currentMAPTree.assignFrom(multiTypeTreeInput.get());
